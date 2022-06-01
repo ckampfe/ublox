@@ -402,6 +402,111 @@ enum NavStatusFlags2 {
     Inactive = 3,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum CarrierPhaseRangeSolutionStatus {
+    /// No carrier phase range solution
+    NoSolution,
+    /// Carrier phase range solution with floating ambiguities
+    SolutionWithFloatingAmbiguities,
+    /// Carrier phase range solution with fixed ambiguities
+    SolutionWithFixedAmbiguities,
+}
+
+#[repr(transparent)]
+#[derive(Copy, Clone)]
+pub struct NavRelPosNedFlags(u32);
+
+impl NavRelPosNedFlags {
+    pub fn gnss_fix_ok(&self) -> bool {
+        self.0 & 0x1 != 0
+    }
+
+    pub fn diff_soln(&self) -> bool {
+        (self.0 >> 1) & 0x1 != 0
+    }
+
+    pub fn rel_pos_valid(&self) -> bool {
+        (self.0 >> 2) & 0x1 != 0
+    }
+
+    pub fn carr_soln(&self) -> CarrierPhaseRangeSolutionStatus {
+        match (self.0 >> 3) & 0x3 {
+            0 => CarrierPhaseRangeSolutionStatus::NoSolution,
+            1 => CarrierPhaseRangeSolutionStatus::SolutionWithFloatingAmbiguities,
+            2 => CarrierPhaseRangeSolutionStatus::SolutionWithFixedAmbiguities,
+            unknown => panic!("Unexpected 2-bit bitfield value {}!", unknown),
+        }
+    }
+
+    pub fn is_moving(&self) -> bool {
+        (self.0 >> 5) & 0x1 != 0
+    }
+
+    pub fn ref_pos_miss(&self) -> bool {
+        (self.0 >> 6) & 0x1 != 0
+    }
+
+    pub fn ref_obs_miss(&self) -> bool {
+        (self.0 >> 7) & 0x1 != 0
+    }
+
+    pub fn rel_pos_heading_valid(&self) -> bool {
+        (self.0 >> 8) & 0x1 != 0
+    }
+
+    pub fn rel_pos_normalized(&self) -> bool {
+        (self.0 >> 9) & 0x1 != 0
+    }
+
+    pub const fn from(x: u32) -> Self {
+        Self(x)
+    }
+}
+
+impl fmt::Debug for NavRelPosNedFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NavRelPosNedFlags")
+            .field("gnss_fix_ok", &self.gnss_fix_ok())
+            .field("diff_soln", &self.diff_soln())
+            .field("rel_pos_valid", &self.rel_pos_valid())
+            .field("carr_soln", &self.carr_soln())
+            .field("is_moving", &self.is_moving())
+            .field("ref_pos_miss", &self.ref_pos_miss())
+            .field("ref_obs_miss", &self.ref_obs_miss())
+            .field("rel_pos_heading_valid", &self.rel_pos_heading_valid())
+            .field("rel_pos_normalized", &self.rel_pos_normalized())
+            .finish()
+    }
+}
+
+#[ubx_packet_recv]
+#[ubx(class = 0x01, id = 0x3c, fixed_payload_len = 64)]
+struct NavRelPosNed {
+    version: u8,
+    _reserved0: u8,
+    ref_station_id: u16,
+    itow: u32,
+    rel_pos_n: i32,
+    rel_pos_e: i32,
+    rel_pos_d: i32,
+    rel_pos_length: i32,
+    rel_pos_heading: i32,
+    _reserved1: u32,
+    rel_pos_hpn: i8,
+    rel_pos_hpe: i8,
+    rel_pos_hpd: i8,
+    rel_pos_hp_length: i8,
+    acc_n: u32,
+    acc_e: u32,
+    acc_d: u32,
+    acc_length: u32,
+    acc_heading: u32,
+    _reserved2: u32,
+
+    #[ubx(map_type = NavRelPosNedFlags)]
+    flags: u32,
+}
+
 #[repr(transparent)]
 #[derive(Copy, Clone)]
 pub struct NavSatSvFlags(u32);
@@ -431,7 +536,7 @@ impl NavSatSvFlags {
         match bits {
             1 => NavSatSvHealth::Healthy,
             2 => NavSatSvHealth::Unhealthy,
-            x => NavSatSvHealth::Unknown(x as u8)
+            x => NavSatSvHealth::Unknown(x as u8),
         }
     }
 
@@ -510,7 +615,10 @@ impl fmt::Debug for NavSatSvFlags {
             .field("quality_ind", &self.quality_ind())
             .field("sv_used", &self.sv_used())
             .field("health", &self.health())
-            .field("differential_correction_available", &self.differential_correction_available())
+            .field(
+                "differential_correction_available",
+                &self.differential_correction_available(),
+            )
             .field("smoothed", &self.smoothed())
             .field("orbit_source", &self.orbit_source())
             .field("ephemeris_available", &self.ephemeris_available())
@@ -593,7 +701,7 @@ impl<'a> core::iter::Iterator for NavSatIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.offset < self.data.len() {
-            let data = &self.data[self.offset..self.offset+12];
+            let data = &self.data[self.offset..self.offset + 12];
             self.offset += 12;
             Some(NavSatSvInfoRef(data))
         } else {
@@ -604,8 +712,7 @@ impl<'a> core::iter::Iterator for NavSatIter<'a> {
 
 impl fmt::Debug for NavSatIter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NavSatIter")
-            .finish()
+        f.debug_struct("NavSatIter").finish()
     }
 }
 
@@ -627,7 +734,7 @@ struct NavSat {
         is_valid = navsat::is_valid,
         from = navsat::convert_to_iter,
         get_as_ref)]
-    svs: [u8; 0]
+    svs: [u8; 0],
 }
 
 mod navsat {
@@ -660,11 +767,16 @@ struct NavOdo {
 /// Reset odometer
 #[ubx_packet_send]
 #[ubx(class = 0x01, id = 0x10, fixed_payload_len = 0)]
-struct NavResetOdo { }
+struct NavResetOdo {}
 
 /// Configure odometer
 #[ubx_packet_recv_send]
-#[ubx(class = 0x06, id = 0x1E, fixed_payload_len = 20, flags = "default_for_builder")]
+#[ubx(
+    class = 0x06,
+    id = 0x1E,
+    fixed_payload_len = 20,
+    flags = "default_for_builder"
+)]
 struct CfgOdo {
     version: u8,
     reserved: [u8; 3],
@@ -763,13 +875,13 @@ bitflags! {
     max_payload_len = 1240,
     flags = "default_for_builder"
 )]
-struct InfError{
+struct InfError {
     #[ubx(map_type = Option<&str>,
         may_fail,
         is_valid = inf::is_valid,
         from = inf::convert_to_str,
         get_as_ref)]
-    message: [u8; 0]
+    message: [u8; 0],
 }
 
 #[ubx_packet_recv]
@@ -779,13 +891,13 @@ struct InfError{
     max_payload_len = 1240,
     flags = "default_for_builder"
 )]
-struct InfNotice{
+struct InfNotice {
     #[ubx(map_type = Option<&str>,
         may_fail,
         is_valid = inf::is_valid,
         from = inf::convert_to_str,
         get_as_ref)]
-    message: [u8; 0]
+    message: [u8; 0],
 }
 
 #[ubx_packet_recv]
@@ -795,13 +907,13 @@ struct InfNotice{
     max_payload_len = 1240,
     flags = "default_for_builder"
 )]
-struct InfTest{
+struct InfTest {
     #[ubx(map_type = Option<&str>,
         may_fail,
         is_valid = inf::is_valid,
         from = inf::convert_to_str,
         get_as_ref)]
-    message: [u8; 0]
+    message: [u8; 0],
 }
 
 #[ubx_packet_recv]
@@ -811,13 +923,13 @@ struct InfTest{
     max_payload_len = 1240,
     flags = "default_for_builder"
 )]
-struct InfWarning{
+struct InfWarning {
     #[ubx(map_type = Option<&str>,
         may_fail,
         is_valid = inf::is_valid,
         from = inf::convert_to_str,
         get_as_ref)]
-    message: [u8; 0]
+    message: [u8; 0],
 }
 
 #[ubx_packet_recv]
@@ -827,18 +939,17 @@ struct InfWarning{
     max_payload_len = 1240,
     flags = "default_for_builder"
 )]
-struct InfDebug{
+struct InfDebug {
     #[ubx(map_type = Option<&str>,
         may_fail,
         is_valid = inf::is_valid,
         from = inf::convert_to_str,
         get_as_ref)]
-    message: [u8; 0]
+    message: [u8; 0],
 }
 
-
 mod inf {
-	pub(crate) fn convert_to_str(bytes: &[u8]) -> Option<&str> {
+    pub(crate) fn convert_to_str(bytes: &[u8]) -> Option<&str> {
         match core::str::from_utf8(bytes) {
             Ok(msg) => Some(msg),
             Err(_) => None,
@@ -1802,7 +1913,7 @@ struct MgaAck {
     msg_id: u8,
 
     /// The first 4 bytes of the acknowledged message's payload
-    msg_payload_start: [u8; 4]
+    msg_payload_start: [u8; 4],
 }
 
 #[ubx_extend]
@@ -1814,7 +1925,7 @@ pub enum MsgAckInfoCode {
     RejectedNoTime = 1,
     RejectedBadVersion = 2,
     RejectedBadSize = 3,
-    RejectedDBStoreFailed= 4,
+    RejectedDBStoreFailed = 4,
     RejectedNotReady = 5,
     RejectedUnknownType = 6,
 }
@@ -1876,7 +1987,7 @@ impl<'a> core::iter::Iterator for MonVerExtensionIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.offset < self.data.len() {
-            let data = &self.data[self.offset..self.offset+30];
+            let data = &self.data[self.offset..self.offset + 30];
             self.offset += 30;
             Some(mon_ver::convert_to_str_unchecked(data))
         } else {
@@ -1887,8 +1998,7 @@ impl<'a> core::iter::Iterator for MonVerExtensionIter<'a> {
 
 impl fmt::Debug for MonVerExtensionIter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MonVerExtensionIter")
-            .finish()
+        f.debug_struct("MonVerExtensionIter").finish()
     }
 }
 
@@ -1970,6 +2080,7 @@ define_recv_packets!(
         NavStatus,
         NavDop,
         NavPosVelTime,
+        NavRelPosNed,
         NavSolution,
         NavVelNed,
         NavTimeUTC,
